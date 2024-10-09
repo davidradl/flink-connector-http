@@ -95,6 +95,7 @@ public final class HttpHeaderUtils {
     public static HeaderPreprocessor createOIDCAuthorizationHeaderPreprocessor(
             String oidcAuthURL,
             String oidcTokenRequest,
+
             Optional<Duration> oidcExpiryReduction
     ) {
         return new ComposeHeaderPreprocessor(
@@ -117,6 +118,7 @@ public final class HttpHeaderUtils {
                     .getOptional(SOURCE_LOOKUP_OIDC_AUTH_TOKEN_EXPIRY_REDUCTION);
             headerPreprocessor = HttpHeaderUtils.createOIDCAuthorizationHeaderPreprocessor(
                  oidcAuthURL.get(), oidcTokenRequest.get(), oidcExpiryReduction);
+
             log.info("created HeaderPreprocessor " + headerPreprocessor
                     + " for OIDC oidcAuthURL=" + oidcAuthURL
                     + ", oidcTokenRequest=" + oidcTokenRequest
