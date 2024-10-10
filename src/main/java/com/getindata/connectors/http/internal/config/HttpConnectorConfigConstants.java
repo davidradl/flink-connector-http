@@ -76,6 +76,8 @@ public final class HttpConnectorConfigConstants {
     public static final String KEY_STORE_TYPE = GID_CONNECTOR_HTTP
         + "security.keystore.type";
 
+    public static final String INCLUDE_DEFAULT_SERVER_TRUSTED_CERT = SERVER_TRUSTED_CERT
+            + ".includeDefaultCerts";
     // -----------------------------------------------------
 
     // ------ HTTPS timeouts and thread pool settings ------

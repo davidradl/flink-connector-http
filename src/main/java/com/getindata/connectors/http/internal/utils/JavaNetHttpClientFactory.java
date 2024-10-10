@@ -4,11 +4,13 @@ import java.net.http.HttpClient;
 import java.net.http.HttpClient.Redirect;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.Executor;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
 
 import lombok.AccessLevel;
@@ -32,13 +34,7 @@ public class JavaNetHttpClientFactory {
      * @return new {@link HttpClient} instance.
      */
     public static HttpClient createClient(Properties properties) {
-
-        SSLContext sslContext = getSslContext(properties);
-
-        return HttpClient.newBuilder()
-            .followRedirects(Redirect.NORMAL)
-            .sslContext(sslContext)
-            .build();
+        return createClient(properties, null);
     }
 
     /**
@@ -50,14 +46,13 @@ public class JavaNetHttpClientFactory {
      * @return new {@link HttpClient} instance.
      */
     public static HttpClient createClient(Properties properties, Executor executor) {
-
-        SSLContext sslContext = getSslContext(properties);
-
-        return HttpClient.newBuilder()
-            .followRedirects(Redirect.NORMAL)
-            .sslContext(sslContext)
-            .executor(executor)
-            .build();
+        HttpClient.Builder builder = HttpClient.newBuilder()
+                .followRedirects(Redirect.NORMAL);
+        if (executor != null) {
+            builder.executor(executor);
+        }
+        builder.sslContext(getSslContext(properties));
+        return builder.build();
     }
 
     /**
@@ -68,6 +63,7 @@ public class JavaNetHttpClientFactory {
      *     <li>{@link HttpConnectorConfigConstants#PROP_DELIM}</li>
      *     <li>{@link HttpConnectorConfigConstants#CLIENT_CERT}</li>
      *     <li>{@link HttpConnectorConfigConstants#CLIENT_PRIVATE_KEY}</li>
+     *     <li>{@link HttpConnectorConfigConstants#INCLUDE_DEFAULT_SERVER_TRUSTED_CERT}</li>
      * </ul>
      *
      * @param properties properties used to build {@link SSLContext}
@@ -91,19 +87,20 @@ public class JavaNetHttpClientFactory {
         String clientPrivateKey = properties
             .getProperty(HttpConnectorConfigConstants.CLIENT_PRIVATE_KEY, "");
 
-        if (StringUtils.isNullOrWhitespaceOnly(keyStorePath)
-            && !selfSignedCert
-            && serverTrustedCerts.length == 0
-            && StringUtils.isNullOrWhitespaceOnly(clientCert)
-            && StringUtils.isNullOrWhitespaceOnly(clientPrivateKey)) {
+        boolean includeDefaultServerCerts =  Boolean.parseBoolean(properties
+                .getProperty(HttpConnectorConfigConstants.INCLUDE_DEFAULT_SERVER_TRUSTED_CERT,
+                        "false"));
 
+        TrustManager[] defaultTrustManagers = null;
+        if (includeDefaultServerCerts) {
             try {
-                return SSLContext.getDefault();
+                TrustManagerFactory tmf = TrustManagerFactory.getInstance(
+                        TrustManagerFactory.getDefaultAlgorithm());
+                defaultTrustManagers = tmf.getTrustManagers();
             } catch (NoSuchAlgorithmException e) {
                 throw new RuntimeException(e);
             }
         }
-
         SecurityContext securityContext = createSecurityContext(properties);
 
         for (String cert : serverTrustedCerts) {
@@ -113,13 +110,22 @@ public class JavaNetHttpClientFactory {
         }
 
         if (!StringUtils.isNullOrWhitespaceOnly(clientCert)
-            && !StringUtils.isNullOrWhitespaceOnly(clientPrivateKey)) {
+                && !StringUtils.isNullOrWhitespaceOnly(clientPrivateKey)) {
             securityContext.addMTlsCerts(clientCert, clientPrivateKey);
         }
 
         // NOTE TrustManagers must be created AFTER adding all certificates to KeyStore.
-        TrustManager[] trustManagers = getTrustedManagers(securityContext, selfSignedCert);
-        return securityContext.getSslContext(trustManagers);
+        TrustManager[] trustManagersFromConfig = getTrustedManagers(
+                securityContext, selfSignedCert);
+
+        TrustManager[] concatinatedTrustManagers = concat(defaultTrustManagers,
+                trustManagersFromConfig);
+        return securityContext.getSslContext(concatinatedTrustManagers);
+    }
+    private static <T> T[] concat(T[] first, T[] second) {
+        T[] result = Arrays.copyOf(first, first.length + second.length);
+        System.arraycopy(second, 0, result, first.length, second.length);
+        return result;
     }
 
     private static TrustManager[] getTrustedManagers(
