@@ -63,6 +63,7 @@ public class HttpTableLookupFunction extends LookupFunction {
 
     @Override
     public Collection<RowData> lookup(RowData keyRow) {
+        log.info("HttpLookupTable lookup " + keyRow);
         localHttpCallCounter.incrementAndGet();
         return client.pull(keyRow);
     }

@@ -2,7 +2,11 @@
 
 ## [Unreleased]
 
+-   Added support for Generic JSON and URL query creator
+
 ## [0.18.0] - 2025-01-15
+
+### Fixed
 
 -   Ignore Eclipse files in .gitignore
 -   Support Flink 1.20
