@@ -34,7 +34,6 @@ import org.apache.flink.table.factories.SerializationFormatFactory;
 
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.core.JsonProcessingException;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.JsonNode;
-import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.HashSet;
 import java.util.Iterator;
@@ -126,8 +125,8 @@ public class GenericJsonAndUrlQueryCreatorFactory implements LookupQueryCreatorF
         String additionalRequestJson =
                 readableConfig.getOptional(REQUEST_ADDITIONAL_BODY_JSON).orElse(null);
 
-        // Validate that additional JSON does not contain join keys
-        validateAdditionalJsonDoesNotOverrideJoinKeys(requestBodyFields, additionalRequestJson);
+        JsonNode additionalRequestJsonNode =
+                validateAndParseAdditionalJson(requestBodyFields, additionalRequestJson);
 
         final SerializationFormatFactory jsonFormatFactory =
                 FactoryUtil.discoverFactory(
@@ -160,7 +159,7 @@ public class GenericJsonAndUrlQueryCreatorFactory implements LookupQueryCreatorF
                 requestQueryParamsFields,
                 requestBodyFields,
                 requestUrlMap,
-                additionalRequestJson,
+                additionalRequestJsonNode,
                 lookupRow);
     }
 
@@ -184,22 +183,21 @@ public class GenericJsonAndUrlQueryCreatorFactory implements LookupQueryCreatorF
     }
 
     /**
-     * Validates that additional JSON fields do not override join keys.
+     * Validates and parses additional JSON, ensuring it doesn't override join keys.
      *
      * @param requestBodyFields the list of body field names (join keys for POST/PUT)
-     * @param additionalRequestJson the additional JSON string to validate
-     * @throws IllegalArgumentException if additional JSON contains join keys
+     * @param additionalRequestJson the additional JSON string to validate and parse
+     * @return parsed JsonNode or null if no additional JSON provided
+     * @throws IllegalArgumentException if additional JSON is invalid or contains join keys
      */
-    private void validateAdditionalJsonDoesNotOverrideJoinKeys(
+    private JsonNode validateAndParseAdditionalJson(
             List<String> requestBodyFields, String additionalRequestJson) {
         if (additionalRequestJson == null || additionalRequestJson.trim().isEmpty()) {
-            return;
+            return null;
         }
 
         try {
-            // Parse the additional JSON to get field names
-            ObjectMapper mapper = new ObjectMapper();
-            JsonNode jsonNode = mapper.readTree(additionalRequestJson);
+            JsonNode jsonNode = ObjectMapperAdapter.instance().readTree(additionalRequestJson);
 
             if (!jsonNode.isObject()) {
                 throw new IllegalArgumentException(
@@ -229,6 +227,8 @@ public class GenericJsonAndUrlQueryCreatorFactory implements LookupQueryCreatorF
                                 conflictingFields.size() > 1 ? "s" : "",
                                 String.join(", ", conflictingFields)));
             }
+
+            return jsonNode;
         } catch (JsonProcessingException e) {
             throw new IllegalArgumentException(
                     "Invalid JSON in http.request.additional-body-json: " + e.getMessage(), e);
