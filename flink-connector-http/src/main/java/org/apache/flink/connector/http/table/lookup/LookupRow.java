@@ -65,6 +65,19 @@ public class LookupRow implements Serializable {
         return this;
     }
 
+    /**
+     * Gets all defined field names from the lookup entries.
+     *
+     * @return List of field names
+     */
+    public List<String> getFieldNames() {
+        List<String> fieldNames = new LinkedList<>();
+        for (LookupSchemaEntry<RowData> entry : lookupEntries) {
+            fieldNames.add(entry.getFieldName());
+        }
+        return fieldNames;
+    }
+
     @VisibleForTesting
     List<LookupSchemaEntry<RowData>> getLookupEntries() {
         return new LinkedList<>(lookupEntries);

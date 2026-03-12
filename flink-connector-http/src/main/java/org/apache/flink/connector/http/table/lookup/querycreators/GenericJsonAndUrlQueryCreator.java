@@ -35,6 +35,7 @@ import org.apache.flink.util.Preconditions;
 
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.core.JsonProcessingException;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.JsonNode;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.node.ArrayNode;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.node.ObjectNode;
 
 import lombok.extern.slf4j.Slf4j;
@@ -80,6 +81,7 @@ public class GenericJsonAndUrlQueryCreator implements LookupQueryCreator {
     private final List<String> requestBodyFields;
     private final Map<String, String> requestUrlMap;
     private final ObjectNode additionalRequestObject;
+    private final ObjectNode mergeRequestBodyConstants;
 
     /**
      * Construct a Generic JSON and URL query creator.
@@ -89,8 +91,10 @@ public class GenericJsonAndUrlQueryCreator implements LookupQueryCreator {
      * @param requestQueryParamsFields query param fields
      * @param requestBodyFields body fields used for PUT and POSTs
      * @param requestUrlMap url map
-     * @param additionalRequestObject pre-parsed additional JSON object to merge into request body
-     *     (parsed once in factory to avoid re-parsing on every lookup)
+     * @param additionalRequestObject pre-parsed additional JSON object for shallow merge (parsed
+     *     once in factory to avoid re-parsing on every lookup)
+     * @param mergeRequestBodyConstants pre-parsed merge JSON object for deep merge (parsed once in
+     *     factory to avoid re-parsing on every lookup)
      * @param lookupRow lookup row itself.
      */
     public GenericJsonAndUrlQueryCreator(
@@ -100,6 +104,7 @@ public class GenericJsonAndUrlQueryCreator implements LookupQueryCreator {
             final List<String> requestBodyFields,
             final Map<String, String> requestUrlMap,
             final ObjectNode additionalRequestObject,
+            final ObjectNode mergeRequestBodyConstants,
             final LookupRow lookupRow) {
         this.httpMethod = httpMethod;
         this.serializationSchema = serializationSchema;
@@ -108,6 +113,7 @@ public class GenericJsonAndUrlQueryCreator implements LookupQueryCreator {
         this.requestBodyFields = requestBodyFields;
         this.requestUrlMap = requestUrlMap;
         this.additionalRequestObject = additionalRequestObject;
+        this.mergeRequestBodyConstants = mergeRequestBodyConstants;
     }
 
     @VisibleForTesting
@@ -152,10 +158,13 @@ public class GenericJsonAndUrlQueryCreator implements LookupQueryCreator {
             try {
                 ObjectNode bodyJsonObject = jsonObject.retain(requestBodyFields);
 
-                // Merge additional JSON if provided (already validated as object in factory)
-                if (additionalRequestObject != null) {
-                    // Merge all fields from additional JSON into the body
-                    // This preserves nested objects and arrays as-is
+                // Merge additional or merge JSON if provided (already validated as object in
+                // factory)
+                if (mergeRequestBodyConstants != null) {
+                    // Deep merge: merge JSON takes precedence at leaf paths
+                    deepMerge(bodyJsonObject, mergeRequestBodyConstants);
+                } else if (additionalRequestObject != null) {
+                    // Shallow merge: top-level fields from additional JSON
                     additionalRequestObject
                             .fields()
                             .forEachRemaining(
@@ -279,6 +288,85 @@ public class GenericJsonAndUrlQueryCreator implements LookupQueryCreator {
                         });
 
         return result.toString();
+    }
+
+    /**
+     * Performs a deep merge of two JSON objects. Values from the source object take precedence over
+     * values in the target object at each leaf path. Nested objects are merged recursively. For
+     * arrays of objects, merges the first source array element into each target array element.
+     *
+     * @param target the target object to merge into (modified in place)
+     * @param source the source object to merge from (takes precedence)
+     */
+    private static void deepMerge(ObjectNode target, ObjectNode source) {
+        source.fields()
+                .forEachRemaining(
+                        entry -> {
+                            String fieldName = entry.getKey();
+                            JsonNode sourceValue = entry.getValue();
+                            JsonNode targetValue = target.get(fieldName);
+
+                            // If both are objects, merge recursively
+                            if (sourceValue.isObject()
+                                    && targetValue != null
+                                    && targetValue.isObject()) {
+                                deepMerge((ObjectNode) targetValue, (ObjectNode) sourceValue);
+                            } else if (sourceValue.isArray()
+                                    && targetValue != null
+                                    && targetValue.isArray()) {
+                                // Handle array merging
+                                mergeArrays(
+                                        target,
+                                        fieldName,
+                                        (ArrayNode) targetValue,
+                                        (ArrayNode) sourceValue);
+                            } else {
+                                // Otherwise, source value takes precedence (overwrite)
+                                target.set(fieldName, sourceValue);
+                            }
+                        });
+    }
+
+    /**
+     * Merges arrays based on their content type. For arrays of objects, merges the first source
+     * array element into each target array element. For primitive arrays or mixed types, replaces
+     * with source array.
+     *
+     * @param target the parent object containing the array field
+     * @param fieldName the name of the array field
+     * @param targetArray the target array
+     * @param sourceArray the source array (merge template)
+     */
+    private static void mergeArrays(
+            ObjectNode target, String fieldName, ArrayNode targetArray, ArrayNode sourceArray) {
+        // If source array is empty or target array is empty, replace with source
+        if (sourceArray.size() == 0 || targetArray.size() == 0) {
+            target.set(fieldName, sourceArray);
+            return;
+        }
+
+        // Check if source array contains objects (use first element as template)
+        JsonNode sourceTemplate = sourceArray.get(0);
+        if (!sourceTemplate.isObject()) {
+            // For primitive arrays, replace entire array with source
+            target.set(fieldName, sourceArray);
+            return;
+        }
+
+        // For arrays of objects: merge source template into each target array element
+        ArrayNode mergedArray = target.arrayNode();
+        for (JsonNode targetElement : targetArray) {
+            if (targetElement.isObject()) {
+                // Clone the target element and merge source template into it
+                ObjectNode mergedElement = ((ObjectNode) targetElement).deepCopy();
+                deepMerge(mergedElement, (ObjectNode) sourceTemplate);
+                mergedArray.add(mergedElement);
+            } else {
+                // If target element is not an object, keep it as-is
+                mergedArray.add(targetElement);
+            }
+        }
+        target.set(fieldName, mergedArray);
     }
 
     private void checkOpened() {

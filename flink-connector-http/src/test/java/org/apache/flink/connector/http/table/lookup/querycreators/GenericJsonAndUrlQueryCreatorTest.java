@@ -436,33 +436,30 @@ class GenericJsonAndUrlQueryCreatorTest {
     }
 
     @Test
-    public void testAdditionalJsonOverridesJoinKey() {
-        // GIVEN - Additional JSON that tries to override a join key
+    public void testAdditionalJsonCanOverrideJoinKey() {
+        // GIVEN - Additional JSON that overrides a join key (now allowed)
         LookupRow lookupRow = getLookupRow(KEY_1);
         Configuration config = getConfiguration("POST");
         config.set(
                 GenericJsonAndUrlQueryCreatorFactory.REQUEST_ADDITIONAL_BODY_JSON,
                 "{\"key1\":\"override_value\",\"c\":789}");
 
-        // WHEN/THEN - Should throw IllegalArgumentException
-        assertThatThrownBy(
-                        () ->
-                                new GenericJsonAndUrlQueryCreatorFactory()
-                                        .createLookupQueryCreator(
-                                                config,
-                                                lookupRow,
-                                                getTableContext(config, RESOLVED_SCHEMA)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining(
-                        "The http.request.additional-body-json option should not override join keys")
-                .hasMessageContaining(
-                        "as join keys are expected to target different enrichments on a request basis")
-                .hasMessageContaining("key1");
+        // WHEN - Create query creator (should succeed)
+        GenericJsonAndUrlQueryCreator creator =
+                (GenericJsonAndUrlQueryCreator)
+                        new GenericJsonAndUrlQueryCreatorFactory()
+                                .createLookupQueryCreator(
+                                        config,
+                                        lookupRow,
+                                        getTableContext(config, RESOLVED_SCHEMA));
+
+        // THEN - Should allow the override
+        assertThat(creator).isNotNull();
     }
 
     @Test
-    public void testAdditionalJsonOverridesMultipleJoinKeys() {
-        // GIVEN - Additional JSON that tries to override multiple join keys
+    public void testAdditionalJsonCanOverrideMultipleJoinKeys() {
+        // GIVEN - Additional JSON that overrides multiple join keys (now allowed)
         LookupRow lookupRow = getLookupRow(KEY_1, KEY_2);
         Configuration config = getConfiguration("POST");
         // Set body fields to include both keys
@@ -471,27 +468,22 @@ class GenericJsonAndUrlQueryCreatorTest {
                 GenericJsonAndUrlQueryCreatorFactory.REQUEST_ADDITIONAL_BODY_JSON,
                 "{\"key1\":\"override1\",\"key2\":\"override2\",\"c\":789}");
 
-        // WHEN/THEN - Should throw IllegalArgumentException with all conflicting fields
-        assertThatThrownBy(
-                        () ->
-                                new GenericJsonAndUrlQueryCreatorFactory()
-                                        .createLookupQueryCreator(
-                                                config,
-                                                lookupRow,
-                                                getTableContext(config, RESOLVED_SCHEMA)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining(
-                        "The http.request.additional-body-json option should not override join keys")
-                .hasMessageContaining(
-                        "as join keys are expected to target different enrichments on a request basis")
-                .hasMessageContaining("Found conflicting field(s):")
-                .hasMessageContaining("key1")
-                .hasMessageContaining("key2");
+        // WHEN - Create query creator (should succeed)
+        GenericJsonAndUrlQueryCreator creator =
+                (GenericJsonAndUrlQueryCreator)
+                        new GenericJsonAndUrlQueryCreatorFactory()
+                                .createLookupQueryCreator(
+                                        config,
+                                        lookupRow,
+                                        getTableContext(config, RESOLVED_SCHEMA));
+
+        // THEN - Should allow the override
+        assertThat(creator).isNotNull();
     }
 
     @Test
-    public void testAdditionalJsonOverridesMultipleJoinKeysDifferentOrder() {
-        // GIVEN - Additional JSON with fields in different order than body fields
+    public void testAdditionalJsonCanOverrideMultipleJoinKeysDifferentOrder() {
+        // GIVEN - Additional JSON with fields in different order than body fields (now allowed)
         // Body fields: key1, key2
         // Additional JSON: key2, key1 (reversed order)
         LookupRow lookupRow = getLookupRow(KEY_1, KEY_2);
@@ -503,22 +495,17 @@ class GenericJsonAndUrlQueryCreatorTest {
                 GenericJsonAndUrlQueryCreatorFactory.REQUEST_ADDITIONAL_BODY_JSON,
                 "{\"key2\":\"override2\",\"key1\":\"override1\",\"c\":789}");
 
-        // WHEN/THEN - Should throw IllegalArgumentException with all conflicting fields
-        assertThatThrownBy(
-                        () ->
-                                new GenericJsonAndUrlQueryCreatorFactory()
-                                        .createLookupQueryCreator(
-                                                config,
-                                                lookupRow,
-                                                getTableContext(config, RESOLVED_SCHEMA)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining(
-                        "The http.request.additional-body-json option should not override join keys")
-                .hasMessageContaining(
-                        "as join keys are expected to target different enrichments on a request basis")
-                .hasMessageContaining("Found conflicting field(s):")
-                .hasMessageContaining("key1")
-                .hasMessageContaining("key2");
+        // WHEN - Create query creator (should succeed)
+        GenericJsonAndUrlQueryCreator creator =
+                (GenericJsonAndUrlQueryCreator)
+                        new GenericJsonAndUrlQueryCreatorFactory()
+                                .createLookupQueryCreator(
+                                        config,
+                                        lookupRow,
+                                        getTableContext(config, RESOLVED_SCHEMA));
+
+        // THEN - Should allow the override
+        assertThat(creator).isNotNull();
     }
 
     @Test
@@ -558,8 +545,9 @@ class GenericJsonAndUrlQueryCreatorTest {
     }
 
     @Test
-    public void testAdditionalJsonOverridesBodyFieldFromUserScenario() {
-        // GIVEN - User scenario: body field 'customerId' with additional JSON trying to override it
+    public void testAdditionalJsonCanOverrideBodyFieldFromUserScenario() {
+        // GIVEN - User scenario: body field 'customerId' with additional JSON overriding it (now
+        // allowed)
         LookupRow lookupRow = new LookupRow();
         lookupRow.addLookupEntry(
                 new RowDataSingleValueLookupSchemaEntry(
@@ -576,19 +564,17 @@ class GenericJsonAndUrlQueryCreatorTest {
                 GenericJsonAndUrlQueryCreatorFactory.REQUEST_ADDITIONAL_BODY_JSON,
                 "{\"customerId\":\"bbb\"}");
 
-        // WHEN/THEN - Should throw IllegalArgumentException because additional JSON tries to
-        // override body field
-        assertThatThrownBy(
-                        () ->
-                                new GenericJsonAndUrlQueryCreatorFactory()
-                                        .createLookupQueryCreator(
-                                                config,
-                                                lookupRow,
-                                                getTableContext(config, RESOLVED_SCHEMA)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("customerId")
-                .hasMessageContaining(
-                        "http.request.additional-body-json option should not override join keys");
+        // WHEN - Create query creator (should succeed)
+        GenericJsonAndUrlQueryCreator creator =
+                (GenericJsonAndUrlQueryCreator)
+                        new GenericJsonAndUrlQueryCreatorFactory()
+                                .createLookupQueryCreator(
+                                        config,
+                                        lookupRow,
+                                        getTableContext(config, RESOLVED_SCHEMA));
+
+        // THEN - Should allow the override
+        assertThat(creator).isNotNull();
     }
 
     @Test
@@ -615,6 +601,158 @@ class GenericJsonAndUrlQueryCreatorTest {
         String lookupQuery = createdQuery.getLookupQuery();
         assertThat(lookupQuery).contains("key1");
         assertThat(lookupQuery).contains("KEY1");
+    }
+
+    @Test
+    public void testAdditionalJsonShallowMerge() throws Exception {
+        // GIVEN - Shallow merge scenario with additional-body-json
+        LookupRow lookupRow = getLookupRow(KEY_1);
+        Configuration config = getConfiguration("POST");
+        // Additional JSON with top-level fields that should be added to event content
+        config.set(
+                GenericJsonAndUrlQueryCreatorFactory.REQUEST_ADDITIONAL_BODY_JSON,
+                "{\"user\":{\"age\":25,\"city\":\"NYC\"},\"extra\":\"data\"}");
+
+        GenericJsonAndUrlQueryCreator creator =
+                (GenericJsonAndUrlQueryCreator)
+                        new GenericJsonAndUrlQueryCreatorFactory()
+                                .createLookupQueryCreator(
+                                        config,
+                                        lookupRow,
+                                        getTableContext(config, RESOLVED_SCHEMA));
+
+        // WHEN
+        var createdQuery = creator.createLookupQuery(ROWDATA);
+
+        // THEN - Should have key1 from event, plus additional JSON fields (shallow merge)
+        String expectedJson =
+                "{\"key1\":\"val1\",\"user\":{\"age\":25,\"city\":\"NYC\"},\"extra\":\"data\"}";
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode expected = mapper.readTree(expectedJson);
+        JsonNode actual = mapper.readTree(createdQuery.getLookupQuery());
+        assertThat(actual).isEqualTo(expected);
+    }
+
+    @Test
+    public void testMergeJsonDeepMerge() throws Exception {
+        // GIVEN - Deep merge scenario with merge-body-json
+        LookupRow lookupRow = getLookupRow(KEY_1);
+        Configuration config = getConfiguration("POST");
+        // Merge JSON with nested structure that should deep merge with event content
+        config.set(
+                GenericJsonAndUrlQueryCreatorFactory.REQUEST_MERGE_BODY_JSON,
+                "{\"user\":{\"age\":25,\"city\":\"NYC\"},\"extra\":\"data\"}");
+
+        GenericJsonAndUrlQueryCreator creator =
+                (GenericJsonAndUrlQueryCreator)
+                        new GenericJsonAndUrlQueryCreatorFactory()
+                                .createLookupQueryCreator(
+                                        config,
+                                        lookupRow,
+                                        getTableContext(config, RESOLVED_SCHEMA));
+
+        // WHEN
+        var createdQuery = creator.createLookupQuery(ROWDATA);
+
+        // THEN - Should have key1 from event, plus merge JSON fields (deep merge)
+        String expectedJson =
+                "{\"key1\":\"val1\",\"user\":{\"age\":25,\"city\":\"NYC\"},\"extra\":\"data\"}";
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode expected = mapper.readTree(expectedJson);
+        JsonNode actual = mapper.readTree(createdQuery.getLookupQuery());
+        assertThat(actual).isEqualTo(expected);
+    }
+
+    @Test
+    public void testBothOptionsThrowsException() {
+        // GIVEN - Both additional-body-json and merge-body-json configured
+        LookupRow lookupRow = getLookupRow(KEY_1);
+        Configuration config = getConfiguration("POST");
+        config.set(
+                GenericJsonAndUrlQueryCreatorFactory.REQUEST_ADDITIONAL_BODY_JSON,
+                "{\"extra\":\"data1\"}");
+        config.set(
+                GenericJsonAndUrlQueryCreatorFactory.REQUEST_MERGE_BODY_JSON,
+                "{\"extra\":\"data2\"}");
+
+        // WHEN/THEN - Should throw IllegalArgumentException
+        assertThatThrownBy(
+                        () ->
+                                new GenericJsonAndUrlQueryCreatorFactory()
+                                        .createLookupQueryCreator(
+                                                config,
+                                                lookupRow,
+                                                getTableContext(config, RESOLVED_SCHEMA)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Cannot use both")
+                .hasMessageContaining("http.request.additional-body-json")
+                .hasMessageContaining("http.request.merge-body-json");
+    }
+
+    @Test
+    public void testMergeJsonWithArraysOfObjects() throws Exception {
+        // Test merging arrays of objects - merge template into each array element
+        ObjectMapper mapper = new ObjectMapper();
+
+        // Setup: Create lookup row with userId as join key
+        LookupRow lookupRow = new LookupRow();
+        lookupRow.addLookupEntry(
+                new RowDataSingleValueLookupSchemaEntry(
+                        "userId",
+                        RowData.createFieldGetter(DataTypes.STRING().getLogicalType(), 0)));
+        lookupRow.addLookupEntry(
+                new RowDataSingleValueLookupSchemaEntry(
+                        "items",
+                        RowData.createFieldGetter(DataTypes.STRING().getLogicalType(), 1)));
+        lookupRow.setLookupPhysicalRowDataType(
+                row(
+                        List.of(
+                                DataTypes.FIELD("userId", DataTypes.STRING()),
+                                DataTypes.FIELD("items", DataTypes.STRING()))));
+
+        ResolvedSchema schema =
+                ResolvedSchema.of(
+                        Column.physical("userId", DataTypes.STRING()),
+                        Column.physical("items", DataTypes.STRING()));
+
+        // Event data: userId as join key, items array with id and name
+        GenericRowData eventData = new GenericRowData(2);
+        eventData.setField(0, StringData.fromString("user123"));
+        eventData.setField(
+                1,
+                StringData.fromString(
+                        "[{\"id\":1,\"name\":\"Item1\"},{\"id\":2,\"name\":\"Item2\"}]"));
+
+        // Merge constant: adds enrichment array with status/priority template
+        Configuration config = new Configuration();
+        config.set(LOOKUP_METHOD, "POST");
+        config.set(
+                GenericJsonAndUrlQueryCreatorFactory.REQUEST_BODY_FIELDS,
+                List.of("userId", "items"));
+        config.set(
+                GenericJsonAndUrlQueryCreatorFactory.REQUEST_MERGE_BODY_JSON,
+                "{\"enrichments\":[{\"status\":\"active\",\"priority\":\"high\"}]}");
+
+        GenericJsonAndUrlQueryCreator creator =
+                (GenericJsonAndUrlQueryCreator)
+                        new GenericJsonAndUrlQueryCreatorFactory()
+                                .createLookupQueryCreator(
+                                        config, lookupRow, getTableContext(config, schema));
+
+        // WHEN
+        var createdQuery = creator.createLookupQuery(eventData);
+        JsonNode result = mapper.readTree(createdQuery.getLookupQuery());
+
+        // THEN - Should have userId, items as string (not parsed), and enrichments array
+        assertThat(result.get("userId").asText()).isEqualTo("user123");
+        // items is stored as a string, not parsed as array
+        assertThat(result.get("items").isTextual()).isTrue();
+        assertThat(result.get("items").asText())
+                .isEqualTo("[{\"id\":1,\"name\":\"Item1\"},{\"id\":2,\"name\":\"Item2\"}]");
+        assertThat(result.get("enrichments").isArray()).isTrue();
+        assertThat(result.get("enrichments").size()).isEqualTo(1);
+        assertThat(result.get("enrichments").get(0).get("status").asText()).isEqualTo("active");
+        assertThat(result.get("enrichments").get(0).get("priority").asText()).isEqualTo("high");
     }
 
     private static void validateCreatedQueryForGet(LookupQueryInfo createdQuery) {

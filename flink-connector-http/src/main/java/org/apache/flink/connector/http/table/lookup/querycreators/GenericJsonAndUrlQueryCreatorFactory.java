@@ -36,7 +36,6 @@ import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.core.JsonProcessin
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.JsonNode;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.node.ObjectNode;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -111,6 +110,25 @@ public class GenericJsonAndUrlQueryCreatorFactory implements LookupQueryCreatorF
                                     + " and additional-body-json is '{\"c\":789}', the result will be"
                                     + " {\"a\":123,\"b\":456,\"c\":789}.");
 
+    public static final ConfigOption<String> REQUEST_MERGE_BODY_JSON =
+            key("http.request.merge-body-json")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Additional JSON content to be deep merged into the request body"
+                                    + " for PUT and POST operations. The value should be a valid"
+                                    + " JSON object string that will be parsed and deep merged with the"
+                                    + " generated request body. Nested objects are merged recursively,"
+                                    + " with merge JSON values taking precedence at each leaf path."
+                                    + " For example, if the body (from join keys) is"
+                                    + " {\"a\":123,\"user\":{\"name\":\"John\",\"age\":30}}"
+                                    + " and merge-body-json is"
+                                    + " '{\"user\":{\"age\":25,\"city\":\"NYC\"},\"c\":789}',"
+                                    + " the result will be"
+                                    + " {\"a\":123,\"user\":{\"name\":\"John\",\"age\":25,\"city\":\"NYC\"},\"c\":789}."
+                                    + " The merge JSON can contain any constant values (nested objects,"
+                                    + " arrays, primitives) and must not conflict with join key field names.");
+
     @Override
     public LookupQueryCreator createLookupQueryCreator(
             final ReadableConfig readableConfig,
@@ -123,11 +141,30 @@ public class GenericJsonAndUrlQueryCreatorFactory implements LookupQueryCreatorF
                 readableConfig.get(REQUEST_QUERY_PARAM_FIELDS);
         Map<String, String> requestUrlMap = readableConfig.get(REQUEST_URL_MAP);
         final List<String> requestBodyFields = readableConfig.get(REQUEST_BODY_FIELDS);
+
+        // Get both additional and merge JSON options
         String additionalRequestJson =
                 readableConfig.getOptional(REQUEST_ADDITIONAL_BODY_JSON).orElse(null);
+        String mergeRequestJson = readableConfig.getOptional(REQUEST_MERGE_BODY_JSON).orElse(null);
+
+        // Validate that both options are not used together
+        if (additionalRequestJson != null && mergeRequestJson != null) {
+            throw new IllegalArgumentException(
+                    String.format(
+                            "Cannot use both %s and %s options together. "
+                                    + "Use %s for shallow merge or %s for deep merge.",
+                            REQUEST_ADDITIONAL_BODY_JSON.key(),
+                            REQUEST_MERGE_BODY_JSON.key(),
+                            REQUEST_ADDITIONAL_BODY_JSON.key(),
+                            REQUEST_MERGE_BODY_JSON.key()));
+        }
 
         ObjectNode additionalRequestObject =
-                getValidatedAdditionalObjectNode(requestBodyFields, additionalRequestJson);
+                getValidatedAdditionalObjectNode(
+                        additionalRequestJson, REQUEST_ADDITIONAL_BODY_JSON.key());
+
+        ObjectNode mergeRequestBodyConstants =
+                getValidatedAdditionalObjectNode(mergeRequestJson, REQUEST_MERGE_BODY_JSON.key());
 
         final SerializationFormatFactory jsonFormatFactory =
                 FactoryUtil.discoverFactory(
@@ -161,6 +198,7 @@ public class GenericJsonAndUrlQueryCreatorFactory implements LookupQueryCreatorF
                 requestBodyFields,
                 requestUrlMap,
                 additionalRequestObject,
+                mergeRequestBodyConstants,
                 lookupRow);
     }
 
@@ -180,21 +218,26 @@ public class GenericJsonAndUrlQueryCreatorFactory implements LookupQueryCreatorF
                 REQUEST_QUERY_PARAM_FIELDS,
                 REQUEST_BODY_FIELDS,
                 REQUEST_URL_MAP,
-                REQUEST_ADDITIONAL_BODY_JSON);
+                REQUEST_ADDITIONAL_BODY_JSON,
+                REQUEST_MERGE_BODY_JSON);
     }
 
     /**
      * Creates and validates the additional JSON node from configuration. This method parses the
      * JSON once during factory creation to avoid re-parsing on every lookup request, improving
-     * runtime performance.
+     * runtime performance. The additional JSON can contain constant values (nested objects, arrays,
+     * primitives) that will be merged with the event content.
      *
-     * @param requestBodyFields the list of request body field names (join keys)
+     * <p>Note: Validation of the merged result (event + constants) against the schema happens at
+     * runtime when the actual merge occurs, not at configuration time.
+     *
      * @param additionalRequestJson the additional JSON string to validate and parse
+     * @param configKey the configuration key name for error messages
      * @return the parsed ObjectNode, or null if no additional JSON is provided
-     * @throws IllegalArgumentException if the JSON is invalid or contains conflicting fields
+     * @throws IllegalArgumentException if the JSON is invalid
      */
     private ObjectNode getValidatedAdditionalObjectNode(
-            List<String> requestBodyFields, String additionalRequestJson) {
+            String additionalRequestJson, String configKey) {
         if (additionalRequestJson == null || additionalRequestJson.trim().isEmpty()) {
             return null;
         }
@@ -205,34 +248,55 @@ public class GenericJsonAndUrlQueryCreatorFactory implements LookupQueryCreatorF
 
             if (!jsonNode.isObject()) {
                 throw new IllegalArgumentException(
-                        String.format(
-                                "The %s must be a valid JSON object.",
-                                REQUEST_ADDITIONAL_BODY_JSON.key()));
+                        String.format("The %s must be a valid JSON object.", configKey));
             }
 
-            // Collect all conflicting fields
-            Set<String> conflictingFields = new HashSet<>();
-            jsonNode.fieldNames().forEachRemaining(conflictingFields::add);
-            conflictingFields.retainAll(requestBodyFields);
-
-            // If there are conflicts, throw exception with all conflicting fields
-            if (!conflictingFields.isEmpty()) {
-                throw new IllegalArgumentException(
-                        String.format(
-                                "The %s option should not override join keys, "
-                                        + "as join keys are expected to target different enrichments on a request basis. "
-                                        + "Found conflicting field(s): %s",
-                                REQUEST_ADDITIONAL_BODY_JSON.key(),
-                                String.join(", ", conflictingFields)));
+            // Validate no primitive arrays with content for merge JSON
+            // (they would be replaced entirely, not merged)
+            if (configKey.equals(REQUEST_MERGE_BODY_JSON.key())) {
+                validateNoPrimitiveArrays(jsonNode, configKey);
             }
 
             return (ObjectNode) jsonNode;
         } catch (JsonProcessingException e) {
             throw new IllegalArgumentException(
-                    String.format(
-                            "Invalid JSON in %s:",
-                            REQUEST_ADDITIONAL_BODY_JSON.key(), e.getMessage()),
-                    e);
+                    String.format("Invalid JSON in %s: %s", configKey, e.getMessage()), e);
+        }
+    }
+
+    /**
+     * Recursively validates that the JSON does not contain arrays of primitives with content.
+     * Arrays of primitives would be replaced entirely rather than merged, which could be confusing,
+     * so we reject them at configuration time.
+     *
+     * @param node the JSON node to validate
+     * @param configKey the configuration key name for error messages
+     * @throws IllegalArgumentException if primitive arrays with content are found
+     */
+    private void validateNoPrimitiveArrays(JsonNode node, String configKey) {
+        if (node.isArray()) {
+            // Check if this is a non-empty array
+            if (node.size() > 0) {
+                JsonNode firstElement = node.get(0);
+                // If first element is not an object or array, it's a primitive array
+                if (!firstElement.isObject() && !firstElement.isArray()) {
+                    throw new IllegalArgumentException(
+                            String.format(
+                                    "The %s option contains an array of primitives with content. "
+                                            + "Primitive arrays cannot be merged and would be replaced entirely. "
+                                            + "Please use arrays of objects instead, or remove the array content.",
+                                    configKey));
+                }
+                // Recursively check array elements
+                for (JsonNode element : node) {
+                    validateNoPrimitiveArrays(element, configKey);
+                }
+            }
+        } else if (node.isObject()) {
+            // Recursively check object fields
+            node.fields()
+                    .forEachRemaining(
+                            entry -> validateNoPrimitiveArrays(entry.getValue(), configKey));
         }
     }
 }
